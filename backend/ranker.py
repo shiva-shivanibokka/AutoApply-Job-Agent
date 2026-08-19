@@ -49,6 +49,51 @@ def score_by_resume(jobs: list[dict], resume_text: str) -> None:
         job["resume_score"] = round(float(s) / top, 4) if top > 0 else 0.0
 
 
+def parse_keywords(raw: str) -> list[str]:
+    """Split a raw search string on , ; | into individual keywords."""
+    return [p.strip() for p in re.split(r"[,;|]", raw or "") if p.strip()]
+
+
+def keyword_score(job: dict, keywords: list[str]) -> float:
+    """Fraction of search keywords found in job title + description (0.0–1.0)."""
+    if not keywords:
+        return 0.0
+    text = (
+        job.get("title", "")
+        + " "
+        + job.get("company", "")
+        + " "
+        + job.get("description", "")[:2000]
+        + " "
+        + " ".join(job.get("required_skills", []))
+    ).lower()
+    hits = sum(1 for kw in keywords if kw.lower() in text)
+    return round(hits / len(keywords), 4)
+
+
+def score_jobs(jobs: list[dict], keywords: list[str], resume_text: str = "") -> None:
+    """
+    Set job['match_score'] for every job, in place: keyword relevance, blended
+    50/50 with BM25 resume fit when a resume is saved.
+
+    Both write paths call this — the interactive search and the daily digest.
+    They used to score independently, and the digest simply never did, so the
+    same posting ranked differently depending on which one happened to find it
+    first. One function, one definition of "match".
+    """
+    for job in jobs:
+        job["match_score"] = keyword_score(job, keywords)
+
+    if not resume_text.strip():
+        return
+
+    score_by_resume(jobs, resume_text)
+    for job in jobs:
+        job["match_score"] = round(
+            0.5 * job["match_score"] + 0.5 * job.get("resume_score", 0.0), 4
+        )
+
+
 if __name__ == "__main__":
     # ponytail self-check: the resume-matching job must top the ranking.
     # Needs a realistic corpus size — BM25's IDF is ~0 for a term in a 2-doc set.

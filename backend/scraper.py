@@ -1371,11 +1371,20 @@ def search_jobs(
     all_jobs: list = []
 
     if target_companies:
-        gh_slugs = [
-            c["slug"] for c in target_companies if c.get("platform") == "greenhouse"
-        ]
-        lv_slugs = [c["slug"] for c in target_companies if c.get("platform") == "lever"]
-        ab_slugs = [c["slug"] for c in target_companies if c.get("platform") == "ashby"]
+        # Every field here is caller-supplied JSON, so read it defensively:
+        # a dict without "slug" used to raise KeyError and surface as a 500.
+        def _slugs(platform: str) -> list:
+            return [
+                slug
+                for c in target_companies
+                if isinstance(c, dict) and c.get("platform") == platform
+                for slug in [str(c.get("slug", "")).strip()]
+                if slug
+            ]
+
+        gh_slugs = _slugs("greenhouse")
+        lv_slugs = _slugs("lever")
+        ab_slugs = _slugs("ashby")
 
         if gh_slugs:
             all_jobs.extend(_scrape_parallel(gh_slugs, kw_list, _scrape_greenhouse))

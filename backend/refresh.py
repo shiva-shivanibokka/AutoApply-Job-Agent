@@ -14,23 +14,36 @@ import ssl
 import json
 import smtplib
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from email.message import EmailMessage
 
 import config
 from job_store import get_jobs, mark_closed, get_setting, upsert_job
+from ranker import parse_keywords, score_jobs
 from scraper import is_job_live, search_jobs
 
 log = logging.getLogger("hireview.refresh")
 
 
 def _auto_close_tracked() -> int:
+    """
+    Recheck each tracked posting and close the ones that are gone.
+
+    Checked in parallel: serially, a 15s-timeout probe per job meant a pipeline
+    of 40 could run past ten minutes and blow the caller's request timeout —
+    while the rest of the codebase already fans out its network calls.
+    """
+    pending = [j for j in get_jobs(status="tracked") if not j.get("closed_at")]
+    if not pending:
+        return 0
+
     closed = 0
-    for j in get_jobs(status="tracked"):
-        if j.get("closed_at"):
-            continue
-        if is_job_live(j.get("url", "")) is False:  # only an explicit False closes it
-            mark_closed(j["id"])
-            closed += 1
+    with ThreadPoolExecutor(max_workers=min(16, len(pending))) as pool:
+        live = pool.map(lambda j: is_job_live(j.get("url", "")), pending)
+        for job, still_live in zip(pending, live):
+            if still_live is False:  # only an explicit False closes it
+                mark_closed(job["id"])
+                closed += 1
     return closed
 
 
@@ -43,16 +56,24 @@ def _digest_new_jobs() -> list[dict]:
     except Exception:
         return []
 
+    keywords = p.get("keywords", "")
     jobs = search_jobs(
-        keywords=p.get("keywords", ""),
+        keywords=keywords,
         location=p.get("location", ""),
-        adzuna_app_id="",  # digest skips Adzuna (keys not persisted)
-        adzuna_app_key="",
+        # Only from env — the UI-entered keys are deliberately never persisted.
+        adzuna_app_id=config.ADZUNA_APP_ID,
+        adzuna_app_key=config.ADZUNA_APP_KEY,
         use_greenhouse=p.get("use_greenhouse", True),
         use_lever=p.get("use_lever", True),
         use_ashby=p.get("use_ashby", True),
         target_companies=p.get("companies"),
     )
+
+    # Score before persisting, exactly as /api/search does. Skipping this wrote
+    # every digest-discovered job with match_score 0, so the same posting sorted
+    # differently depending on which path happened to find it first.
+    score_jobs(jobs, parse_keywords(keywords), get_setting("resume") or "")
+
     return [job for job in jobs if upsert_job(job)]  # True == newly inserted
 
 

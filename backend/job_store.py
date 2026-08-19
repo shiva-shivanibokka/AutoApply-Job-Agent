@@ -234,11 +234,14 @@ def mark_closed(job_id: str):
 def suggest_titles(query: str, limit: int = 10) -> list[str]:
     if not query.strip():
         return []
+    # Escape LIKE wildcards, or a user typing "%" matches every row in the table.
+    pattern = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     with _conn() as con:
         rows = _dicts(
             con.execute(
-                "SELECT DISTINCT title FROM jobs WHERE title LIKE ? ORDER BY title LIMIT ?",
-                (f"%{query}%", limit),
+                "SELECT DISTINCT title FROM jobs WHERE title LIKE ? ESCAPE '\\' "
+                "ORDER BY title LIMIT ?",
+                (f"%{pattern}%", limit),
             )
         )
     return [r["title"] for r in rows]

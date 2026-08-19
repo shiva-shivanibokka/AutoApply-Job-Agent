@@ -55,6 +55,13 @@ SMTP_PASS = _env("SMTP_PASS")
 DIGEST_TO = _env("DIGEST_TO")
 DIGEST_ENABLED = bool(SMTP_USER and SMTP_PASS and DIGEST_TO)
 
+# --- Adzuna (optional extra source) ---
+# Used when the UI leaves the key fields blank, and by the daily digest, which
+# has no UI to read them from. Documented in .env.example and the README since
+# the beginning, but nothing actually read them until now.
+ADZUNA_APP_ID = _env("ADZUNA_APP_ID")
+ADZUNA_APP_KEY = _env("ADZUNA_APP_KEY")
+
 
 def validate() -> None:
     """Raise on inconsistent config. Called once at API startup."""

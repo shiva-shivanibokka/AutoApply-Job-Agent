@@ -14,7 +14,6 @@ Run:
   uvicorn api:app --reload --port 8000
 """
 
-import re
 import logging
 import json as _json
 from datetime import datetime
@@ -34,7 +33,7 @@ from job_store import (
     get_setting,
     set_setting,
 )
-from ranker import score_by_resume
+from ranker import parse_keywords, score_jobs
 
 logging.basicConfig(
     level=config.LOG_LEVEL,
@@ -180,28 +179,6 @@ app.add_middleware(
 )
 
 
-def _keyword_score(job: dict, keywords: list[str]) -> float:
-    """Fraction of search keywords found in job title + description (0.0–1.0)."""
-    if not keywords:
-        return 0.0
-    text = (
-        job.get("title", "")
-        + " "
-        + job.get("company", "")
-        + " "
-        + job.get("description", "")[:2000]
-        + " "
-        + " ".join(job.get("required_skills", []))
-    ).lower()
-    hits = sum(1 for kw in keywords if kw.lower() in text)
-    return round(hits / len(keywords), 4)
-
-
-def _parse_keywords(raw: str) -> list[str]:
-    parts = re.split(r"[,;|]", raw)
-    return [p.strip() for p in parts if p.strip()]
-
-
 @app.get("/api/companies")
 async def companies(q: str = "", limit: int = 10):
     """
@@ -251,16 +228,21 @@ async def search(
     Scrape all enabled sources, score by keyword relevance, persist to SQLite,
     and return all results sorted newest first.
     """
-    kw_list = _parse_keywords(keywords)
+    kw_list = parse_keywords(keywords)
 
     target_companies: list | None = None
     if companies.strip():
+        # Say so when this is malformed. Swallowing it silently turned a targeted
+        # 3-company search into an unrequested fan-out over every known board,
+        # which looks like a hang rather than a bad request.
         try:
             parsed = _json.loads(companies)
-            if isinstance(parsed, list) and parsed:
-                target_companies = parsed
-        except Exception:
-            pass
+        except ValueError as e:
+            raise HTTPException(400, f"companies must be a JSON array: {e}")
+        if not isinstance(parsed, list):
+            raise HTTPException(400, "companies must be a JSON array")
+        if parsed:
+            target_companies = parsed
 
     if not keywords.strip() and not target_companies:
         return {
@@ -272,8 +254,9 @@ async def search(
     raw_jobs = search_jobs(
         keywords=keywords,
         location=location,
-        adzuna_app_id=adzuna_app_id,
-        adzuna_app_key=adzuna_app_key,
+        # UI-entered keys win; fall back to the env-configured pair.
+        adzuna_app_id=adzuna_app_id or config.ADZUNA_APP_ID,
+        adzuna_app_key=adzuna_app_key or config.ADZUNA_APP_KEY,
         use_greenhouse=(use_greenhouse.lower() == "true"),
         use_lever=(use_lever.lower() == "true"),
         use_ashby=(use_ashby.lower() == "true"),
@@ -287,17 +270,8 @@ async def search(
             "message": "No jobs found. Try different keywords or enable more sources.",
         }
 
-    for job in raw_jobs:
-        job["match_score"] = _keyword_score(job, kw_list)
-
-    # Resume-aware ranking: blend keyword relevance with BM25 fit to the saved resume.
-    resume_text = get_setting("resume") or ""
-    if resume_text.strip():
-        score_by_resume(raw_jobs, resume_text)
-        for job in raw_jobs:
-            job["match_score"] = round(
-                0.5 * job["match_score"] + 0.5 * job.get("resume_score", 0.0), 4
-            )
+    # Keyword relevance, blended with BM25 resume fit when a resume is saved.
+    score_jobs(raw_jobs, kw_list, get_setting("resume") or "")
 
     new_count = 0
     for job in raw_jobs:
@@ -333,13 +307,19 @@ async def search(
     return {"jobs": raw_jobs, "total": len(raw_jobs), "new_count": new_count}
 
 
+MAX_PAGE = 500  # ceiling on rows one request can pull back
+MAX_RESUME_CHARS = 100_000  # ~40 pages; a real resume is under 10k
+
+
 @app.get("/api/jobs")
 async def list_jobs(
     status: Optional[str] = None,
     sort: str = "newest",  # "newest" | "relevance"
-    limit: int = 0,  # 0 = no limit
+    limit: int = 0,  # 0 = server default (MAX_PAGE)
 ):
-    return {"jobs": get_jobs(status=status, sort=sort, limit=limit or None)}
+    # Bounded either way: limit=0 used to mean "no limit" and returned the whole table.
+    limit = MAX_PAGE if limit <= 0 else min(limit, MAX_PAGE)
+    return {"jobs": get_jobs(status=status, sort=sort, limit=limit)}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -386,6 +366,10 @@ async def patch_status(job_id: str, status: str = Form(...)):
 async def save_resume(text: str = Form("")):
     """Store the user's resume text; used to rank jobs by fit (BM25)."""
     text = text.strip()
+    if len(text) > MAX_RESUME_CHARS:
+        raise HTTPException(
+            413, f"resume too long ({len(text)} chars, max {MAX_RESUME_CHARS})"
+        )
     set_setting("resume", text)
     return {"has_resume": bool(text), "length": len(text)}
 

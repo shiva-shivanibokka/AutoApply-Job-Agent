@@ -3,20 +3,21 @@ from fastapi.testclient import TestClient
 import api
 import job_store as js
 from conftest import make_job
+from ranker import keyword_score, parse_keywords
 
 client = TestClient(api.app)
 
 
 def test_keyword_score_fraction():
     job = {"title": "ML Engineer", "company": "Acme", "description": "python and pytorch"}
-    assert api._keyword_score(job, ["python", "pytorch"]) == 1.0
-    assert api._keyword_score(job, ["python", "rust"]) == 0.5
-    assert api._keyword_score(job, []) == 0.0
+    assert keyword_score(job, ["python", "pytorch"]) == 1.0
+    assert keyword_score(job, ["python", "rust"]) == 0.5
+    assert keyword_score(job, []) == 0.0
 
 
 def test_parse_keywords_splits_on_separators():
-    assert api._parse_keywords("ml, ai; llm | nlp") == ["ml", "ai", "llm", "nlp"]
-    assert api._parse_keywords("  ") == []
+    assert parse_keywords("ml, ai; llm | nlp") == ["ml", "ai", "llm", "nlp"]
+    assert parse_keywords("  ") == []
 
 
 def test_health():

@@ -128,7 +128,7 @@ Frontend: `BACKEND_URL` (the Cloud Run URL in production; defaults to `http://lo
 ## Testing & CI
 
 ```bash
-cd backend && pytest -q      # 23 tests: store, ranker, scraper, api
+cd backend && pytest -q      # 30 tests: store, ranker, scraper, api, regressions
 ruff check .                 # lint
 cd frontend && npx tsc --noEmit && npm run build
 ```
