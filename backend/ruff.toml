@@ -1,0 +1,22 @@
+# Lint rules, stated explicitly.
+#
+# There was no config here, so the repo inherited whatever ruff's defaults
+# happened to be. requirements-dev.txt pinned only `ruff>=0.6.0`, so CI resolved
+# to the newest release on each run. When ruff widened its default rule set, CI
+# went red on a commit that changed none of the flagged lines — the lint result
+# depended on the release date rather than on the code. Both halves are fixed:
+# the version is pinned in requirements-dev.txt, and the rules are named here.
+
+target-version = "py312"
+
+[lint]
+select = [
+    "E4", "E7", "E9",  # pycodestyle: real errors, not layout opinions
+    "F",               # pyflakes: undefined names, unused imports
+    "I",               # import sorting
+    "S110", "S112",    # try-except-pass / -continue: silent failure
+]
+
+# Silent failure is the one class of bug this codebase has actually shipped, so
+# S110/S112 stay on and the handful of legitimate cases carry an inline noqa
+# with a reason. Blanket-ignoring the rule would have hidden the two real ones.

@@ -21,18 +21,19 @@ Company lists are NOT hardcoded. They come from:
   C. User-supplied custom slugs entered in the UI.
 """
 
-import re
-import json
-import time
-import logging
 import hashlib
-import requests
+import json
+import logging
+import re
 import threading
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
+
+import requests
 from bs4 import BeautifulSoup  # type: ignore[import-untyped]
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 HEADERS = {
     "User-Agent": (
@@ -633,8 +634,11 @@ def _save_disk_cache(companies: dict, name_map: dict):
             ),
             encoding="utf-8",
         )
-    except Exception:
-        pass
+    except Exception as e:
+        # Not fatal — the caller has the data in memory either way. But a cache
+        # that silently never writes means every run re-fetches Simplify's
+        # listings, which looks like nothing at all from the outside.
+        log.warning("company cache write failed [%s]: %s", e.__class__.__name__, CACHE_FILE)
 
 
 _INVALID_SLUGS = {"embed", "job_board", "jobs", "postings", "api", "apply"}
@@ -722,11 +726,24 @@ def _fetch_simplify_companies() -> dict:
                                 }
                         continue
 
-            except Exception:
+            except Exception as e:
+                # Losing a Simplify source drops ~1,000 companies and quietly
+                # degrades every later search to the curated fallback list.
+                # Identical results, far fewer of them, and no signal anywhere —
+                # so this gets logged loudly even though it is recoverable.
+                log.warning(
+                    "simplify source unusable, falling back for it [%s]: %s",
+                    e.__class__.__name__,
+                    url,
+                )
                 continue
 
         if any(result.values()):
             _save_disk_cache(result, name_map)
+        else:
+            log.warning(
+                "no companies from any Simplify source; using the curated fallback only"
+            )
 
         return result
 
@@ -1066,7 +1083,7 @@ def _parse_lever_json(postings: list, company_slug: str, keywords: list) -> list
                 posted_at = datetime.fromtimestamp(
                     int(float(created_ms)) / 1000, tz=timezone.utc
                 ).strftime("%Y-%m-%dT%H:%M:%SZ")
-            except Exception:
+            except Exception:  # noqa: S110 - one unparseable timestamp, per job; logging would be noise
                 pass
         # Lever provides workplaceType and categories.commitment
         workplace = _normalise_workplace(str(p.get("workplaceType") or ""))
@@ -1312,7 +1329,7 @@ def fetch_job_description(url: str) -> str:
     for sel in CSS_SELECTORS:
         try:
             el = soup.select_one(sel)
-        except Exception:
+        except Exception:  # noqa: S112 - selectors are a fixed list; a bad one just falls through
             continue
         if el:
             candidate = el.get_text(separator="\n", strip=True)
@@ -1331,7 +1348,7 @@ def fetch_job_description(url: str) -> str:
                 candidate = best.get_text(separator="\n", strip=True)
                 if len(candidate) > len(text):
                     text = candidate
-        except Exception:
+        except Exception:  # noqa: S110 - best-effort fallback; caller checks the result length
             pass
 
     if len(text) < 200:
@@ -1339,7 +1356,7 @@ def fetch_job_description(url: str) -> str:
             body = soup.find("body")
             if body:
                 text = body.get_text(separator="\n", strip=True)
-        except Exception:
+        except Exception:  # noqa: S110 - last-resort fallback; an empty result is a handled 422
             pass
 
     text = re.sub(r"\n{3,}", "\n\n", text)

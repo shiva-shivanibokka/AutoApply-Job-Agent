@@ -10,15 +10,15 @@ Does two things:
   2. Daily digest — re-run the user's last search and email any brand-new matches.
 """
 
-import ssl
 import json
-import smtplib
 import logging
+import smtplib
+import ssl
 from concurrent.futures import ThreadPoolExecutor
 from email.message import EmailMessage
 
 import config
-from job_store import get_jobs, mark_closed, get_setting, upsert_job
+from job_store import get_jobs, get_setting, mark_closed, upsert_job
 from ranker import parse_keywords, score_jobs
 from scraper import is_job_live, search_jobs
 

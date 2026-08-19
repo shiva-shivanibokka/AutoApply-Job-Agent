@@ -14,8 +14,8 @@ Run:
   uvicorn api:app --reload --port 8000
 """
 
-import logging
 import json as _json
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -23,17 +23,17 @@ from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 import config
-from scraper import search_jobs, fetch_job_description, get_company_name_map
 from job_store import (
-    upsert_job,
-    get_jobs,
     get_job,
-    update_job_status,
-    suggest_titles,
+    get_jobs,
     get_setting,
     set_setting,
+    suggest_titles,
+    update_job_status,
+    upsert_job,
 )
 from ranker import parse_keywords, score_jobs
+from scraper import fetch_job_description, get_company_name_map, search_jobs
 
 logging.basicConfig(
     level=config.LOG_LEVEL,

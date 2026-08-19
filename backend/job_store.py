@@ -39,7 +39,7 @@ def _conn():
     except Exception:
         try:
             con.rollback()
-        except Exception:
+        except Exception:  # noqa: S110 - a failed rollback must not mask the original error
             pass
         raise
 

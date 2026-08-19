@@ -1,8 +1,8 @@
+from conftest import make_job
 from fastapi.testclient import TestClient
 
 import api
 import job_store as js
-from conftest import make_job
 from ranker import keyword_score, parse_keywords
 
 client = TestClient(api.app)

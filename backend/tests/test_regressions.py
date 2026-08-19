@@ -5,11 +5,11 @@ Each of these passed review and passed the existing suite while being broken —
 that's why they're pinned here by name rather than folded into the other files.
 """
 
+from conftest import make_job
 from fastapi.testclient import TestClient
 
 import api
 import job_store as js
-from conftest import make_job
 from ranker import score_jobs
 
 client = TestClient(api.app)

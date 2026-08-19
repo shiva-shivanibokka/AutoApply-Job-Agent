@@ -1,5 +1,6 @@
-import job_store as js
 from conftest import make_job
+
+import job_store as js
 
 
 def test_insert_then_update_reports_new():
