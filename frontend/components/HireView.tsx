@@ -55,16 +55,25 @@ const EXP_SIGNALS: Record<Exclude<ExperienceLevel, "any">, {
   },
 }
 
+// Most senior first. A title carrying two signals — "Senior Software Engineer II",
+// "Staff Engineer L5" — should read as the higher one; ascending order let the
+// numeric level token win and filed both under "mid". Intern stays first because
+// it is unambiguous and never co-occurs with a seniority word.
+const LEVELS_BY_CONFIDENCE = ["intern", "staff", "senior", "mid", "newgrad"] as const
+
 function classifyExperience(job: Job): Exclude<ExperienceLevel, "any"> | null {
   const title = ` ${job.title.toLowerCase()} `
   const desc  = (job.description || "").toLowerCase().slice(0, 3000)
 
-  for (const level of ["intern", "newgrad", "mid", "senior", "staff"] as const) {
-    const { title: titleKws, desc: descPatterns } = EXP_SIGNALS[level]
+  // Every title is checked before any description, which is what the comment on
+  // EXP_SIGNALS always claimed. Interleaving them per level meant a junior
+  // description out-voted a senior title.
+  for (const level of LEVELS_BY_CONFIDENCE) {
+    if (EXP_SIGNALS[level].title.some(kw => title.includes(kw))) return level
+  }
 
-    if (titleKws.some(kw => title.includes(kw))) return level
-
-    if (descPatterns.some(p => {
+  for (const level of LEVELS_BY_CONFIDENCE) {
+    if (EXP_SIGNALS[level].desc.some(p => {
       try { return new RegExp(p).test(desc) } catch { return false }
     })) return level
   }

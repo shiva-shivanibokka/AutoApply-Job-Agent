@@ -52,7 +52,7 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric" })
 }
 
-function buildLinkedInUrl(company: string, role: string): string {
+function buildLinkedInUrl(company: string): string {
   const keywords = encodeURIComponent(`recruiter "${company}"`)
   return `https://www.linkedin.com/search/results/people/?keywords=${keywords}&origin=GLOBAL_SEARCH_HEADER`
 }
@@ -84,6 +84,7 @@ export default function JobModal({ job, onClose, onStatusChange }: Props) {
   const [status, setStatus]   = useState<Job["status"]>(job.status)
   const [tab, setTab]         = useState<Tab>("description")
   const [copied, setCopied]   = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
   const hasFetched            = useRef(false)
   const src = SOURCE_STYLES[job.source] ?? { bg: "#f3f4f6", color: "#6b7280" }
 
@@ -125,9 +126,17 @@ export default function JobModal({ job, onClose, onStatusChange }: Props) {
   }
 
   async function handleCopyEmail() {
-    await navigator.clipboard.writeText(buildEmailTemplate(job.company, job.title))
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    // navigator.clipboard is undefined outside a secure context and can reject
+    // when permission is denied. Unguarded, that threw an unhandled rejection and
+    // left the button looking dead — no copy, no confirmation, no error.
+    try {
+      await navigator.clipboard.writeText(buildEmailTemplate(job.company, job.title))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setCopyFailed(true)
+      setTimeout(() => setCopyFailed(false), 2500)
+    }
   }
 
   return (
@@ -373,7 +382,7 @@ export default function JobModal({ job, onClose, onStatusChange }: Props) {
                 </p>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <a
-                    href={buildLinkedInUrl(job.company, job.title)}
+                    href={buildLinkedInUrl(job.company)}
                     target="_blank" rel="noreferrer"
                     style={{
                       display: "flex", alignItems: "center", gap: 6,
@@ -416,16 +425,18 @@ export default function JobModal({ job, onClose, onStatusChange }: Props) {
                     style={{
                       display: "flex", alignItems: "center", gap: 5,
                       padding: "5px 12px", borderRadius: 6,
-                      background: copied ? "#dcfce7" : "var(--surface)",
-                      border: `1px solid ${copied ? "#16a34a" : "var(--border)"}`,
-                      color: copied ? "#16a34a" : "var(--muted)",
+                      background: copyFailed ? "#fee2e2" : copied ? "#dcfce7" : "var(--surface)",
+                      border: `1px solid ${copyFailed ? "#b91c1c" : copied ? "#16a34a" : "var(--border)"}`,
+                      color: copyFailed ? "#b91c1c" : copied ? "#16a34a" : "var(--muted)",
                       fontSize: 12, fontWeight: 600, cursor: "pointer",
                       transition: "all 0.2s",
                     }}
                   >
-                    {copied
-                      ? <><CheckIcon size={12} /> Copied</>
-                      : <><CopyIcon size={12} /> Copy</>}
+                    {copyFailed
+                      ? <><CopyIcon size={12} /> Copy failed — select the text</>
+                      : copied
+                        ? <><CheckIcon size={12} /> Copied</>
+                        : <><CopyIcon size={12} /> Copy</>}
                   </button>
                 </div>
                 <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 12, lineHeight: 1.6 }}>
